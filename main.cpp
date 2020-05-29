@@ -21,18 +21,18 @@ using namespace std;
 void parse_command(char command[], char* argv[], int* wait){
 	for (unsigned i=0; i<BUF_SIZE; i++) argv[i]=NULL;
 
-	if (command[strlen(command)-1]=='%'){
+	if (command[strlen(command)-1]=='&'){
 		*wait=1;
 		command[strlen(command)-1]='\0';
 	}
 	else *wait=0;
 
-	const char *delim=" ";
+	const char *space=" ";
 	unsigned i=0;
-	char *token=strtok(command, delim);
+	char *token=strtok(command, space);
 	while(token!=NULL){
 		argv[i++]=token;
-		token=strtok(NULL,delim);
+		token=strtok(NULL,space);
 	}
 
 	argv[i]=NULL;
@@ -61,24 +61,73 @@ void parent(pid_t child_pid, int wait){
 	}
 }
 
-void child(char* argv[], char* redir_argv[]) {
-   // Execute user command in child process
-   if (execvp(argv[0], argv) == -1) {
-      perror("Fail to execute command");
-      exit(EXIT_FAILURE);
-   }
+void parse_dir(char* args[], char* dir_val[]){
+	unsigned i=0;
+	dir_val[0]=NULL;
+	dir_val[1]=NULL;
+
+	while (args[i]!=NULL){
+		if (strcmp(args[i],"<")== 0 || strcmp(args[i],">")==0){
+			if (args[i+1]!=NULL){
+				dir_val[0]=strdup(args[i]);
+				dir_val[1]=strdup(args[i+1]);
+				args[i]=NULL;
+				args[i+1]=NULL;
+			}
+		}
+		i++;
+	}
+}
+
+void child(char* args[], char* dir_val[]) {
+	int value_in, value_out;
+	if (dir_val[0]!=NULL){
+		if (strcmp(dir_val[0],">")==0){
+			value_out=creat(dir_val[1],S_IRWXU);
+			if (value_out==-1){
+				perror("Output failed!!");
+				exit(EXIT_FAILURE);
+			}
+
+			dup2(value_out, STDOUT_FILENO);
+
+			if (close(value_out)==-1){
+				perror("Clossing output failed!!");
+				exit(EXIT_FAILURE);
+			}
+		}
+
+		else if (strcmp(dir_val[0], "<")==0){
+			value_in=open(dir_val[1], O_RDONLY);
+			if (value_in==-1){
+				perror("Input failed!!");
+				exit(EXIT_FAILURE);
+			}
+
+			dup2(value_in, STDIN_FILENO);
+
+			if (close(value_in)==-1){
+				perror("Clossing input failed!!");
+				exit(EXIT_FAILURE);
+			}
+		}
+	}	
+   	// Execute user command in child process
+   	if (execvp(args[0], args) == -1) {
+     	perror("Fail to execute command");
+     	exit(EXIT_FAILURE);
+  	}
 }
 
 int main(void) {
-
 	char command[MAX_LENGTH];
 
 	char *args[BUF_SIZE]; // MAximum 40 argments
 
 	int should_run = 1;
 	pid_t pid;
-	int status=0, wait;
-	char *argv[BUF_SIZE], *redir_argv[REDIR_SIZE];
+	int wait;
+	char *redir_argv[REDIR_SIZE];
 
 
 	while (should_run) {
@@ -99,6 +148,7 @@ int main(void) {
 		
 		//Parse command and arguments.
 		parse_command(command, args, &wait);
+		parse_dir(args, redir_argv);
 
 
 		// Fork child process
